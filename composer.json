@@ -1,0 +1,23 @@
+{
+    "name": "trijin/DnDice"
+    ,"type": "library"
+    ,"description": "DnDice - библиотека для парсинга костей."
+    ,"version": "0.1.0"
+    ,"keywords": ["dnd","dice"]
+    ,"homepage": "http://trijin.ru/"
+    ,"license": "MIT"
+    ,"authors": [
+        {
+            "name": "Alex T Trijin"
+            ,"email": "trijin@gmail.com"
+            ,"role": "Developer"
+        }
+    ]
+    ,"require": {
+        "php": ">=5.3"
+    }
+    ,"minimum-stability":"dev"
+    ,"autoload": {
+        "classmap": [""]
+    }
+}
