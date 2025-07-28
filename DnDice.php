@@ -56,18 +56,21 @@ class DnDice
     {
         $originalFormula = $formula;
 
-        // Извлекаем префиксы
+        // Извлекаем префиксы (могут быть оба сразу)
         $spoiler = false;
         $showDetails = false;
 
-        if (preg_match('/^s\s*(.+)/', $formula, $match)) {
-            $spoiler = true;
-            $formula = $match[1];
-        }
+        // Проверяем на комбинацию префиксов sf или fs
+        if (preg_match('/^([sf]+)\s*(.+)/', $formula, $match)) {
+            $prefixes = $match[1];
+            $formula = $match[2];
 
-        if (preg_match('/^f\s*(.+)/', $formula, $match)) {
-            $showDetails = true;
-            $formula = $match[1];
+            if (strpos($prefixes, 's') !== false) {
+                $spoiler = true;
+            }
+            if (strpos($prefixes, 'f') !== false) {
+                $showDetails = true;
+            }
         }
 
         // Заменяем параметры
@@ -487,7 +490,7 @@ class DnDice
 // Пример использования
 
 // Простое хранилище параметров
-class SimpleParamStore
+class SimpleParamStore implements ParamStoreInterface
 {
     private $params = array();
 
