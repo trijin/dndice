@@ -4,16 +4,29 @@
  * Dice Rolling Library for PHP 5.6
  * Парсит и обрабатывает формулы с кубиками в тексте
  */
+
 class DnDice
 {
     private $formulas = array();
     private $paramStore = null;
 
+    private $cachedParams = array();
+    private $paramsCallCount = array('out'=>0,'in'=>0);
+
+    const ORIGIN_regex = '/(?:^|[^a-zA-Z0-9])([sf]*\s*(?:\([^)]*\)|[\d&]\w*d\d+[\w\d&]*(?:\s*[+\-*\/]\s*(?:\d+|[\d&]\w*d\d+[\w\d&]*|\([^)]+\)))*)\s*(?:[sc]?[><]\s*\d+)?)(?:[^a-zA-Z0-9]|$)/i';
+    const GPT_regex = '/
+    s?\(.*?\)s[><=]?\d+                                  # s(...)s>35
+    |s?\d*d\d+(?:[a-z]+\d*)*(?:&\w+)?(?:c[><=]?\d+)?     # s6d20kh4&str или s6d20x4c>10
+    |\d*d\d+                                             # обычные d20, 3d10
+    |&\w+                                                # &attack
+    |s?\d*d\d+(?:[a-z]+\d*)*(?:&\w+)?(?:c[><=]?\d+)?\s*[><=]\s*\d*d\d+(?:[a-z]+\d*)*(?:&\w+)?(?:c[><=]?\d+)? # сравнение: формула > формула
+/x';
+    const MY_regex = '/(?:^|[^a-zA-Z0-9])((?:[sf]{1,2})?(?:{?&[&a-zA-Z0-9]+}?|d\d+|\d+d\d+|\()(?:{?&[&a-zA-Z0-9]+}?|d\d+|\d+d\d+|[()]|\s[<>]\s|(?:{?&[&a-zA-Z0-9]+}?|(?:h|[kd][hlm]\d+?)|!|x\d+?|[sc][<>]=?\d+|ro?\d+|\s?[+\-*\/]\s?\d+?))*)+(?:[^a-zA-Z0-9]|$)/';
     /**
      * Конструктор
      * @param ParamStoreInterface $paramStore Объект с методом get($param)
      */
-    public function __construct(ParamStoreInterface $paramStore = null)
+    public function __construct(ParamStoreInterface $paramStore)
     {
         $this->paramStore = $paramStore;
     }
@@ -27,9 +40,8 @@ class DnDice
     {
         $this->formulas = array();
 
-        // Регулярное выражение для поиска формул (улучшенное)
-        $pattern = '/(?:^|[^a-zA-Z0-9])([sf]*\s*(?:(?:\([^)]*\)|[\d&]\w*d\d+[\w\d&]*(?:\s*[+\-*\/]\s*(?:\d+|[\d&]\w*d\d+[\w\d&]*|\([^)]+\)))*)\s*(?:[><]\s*\d+|[sc][><]\d+)?|(?:\d+|\([^)]+\))\s*[><]\s*(?:\d+|\([^)]+\))))(?:[^a-zA-Z0-9]|$)/i';
-
+        // Улучшенное регулярное выражение для поиска формул
+        $pattern = self::MY_regex;
         preg_match_all($pattern, $text, $matches);
 
         $results = array();
@@ -58,13 +70,13 @@ class DnDice
     private function processFormula($formula)
     {
         $originalFormula = $formula;
-
+        $formula = $this->replaceParameters($formula);
         // Извлекаем префиксы (могут быть оба сразу)
         $spoiler = false;
         $showDetails = false;
 
         // Проверяем на комбинацию префиксов sf или fs
-        if (preg_match('/^([sf]+)\s*(.+)/', $formula, $match))
+        if (preg_match('/^([sf]{1,2})\s*(.+)/', $formula, $match))
         {
             $prefixes = $match[1];
             $formula = $match[2];
@@ -80,7 +92,7 @@ class DnDice
         }
 
         // Заменяем параметры
-        $formula = $this->replaceParameters($formula);
+        //$formula = $this->replaceParameters($formula);
 
         try
         {
@@ -114,7 +126,7 @@ class DnDice
 
     private function replaceParametersRecursive($formula, &$processedParams)
     {
-        $result = preg_replace_callback('/&(\w+)/', array($this, 'replaceParameterCallback'), $formula);
+        $result = preg_replace_callback('/{?&(\w+)}?/', array($this, 'replaceParameterCallback'), $formula);
 
         // Проверяем, есть ли еще параметры для замены
         if ($result !== $formula && preg_match('/&\w+/', $result))
@@ -151,10 +163,14 @@ class DnDice
     private function replaceParameterCallback($matches)
     {
         $paramName = $matches[1];
-        if ($this->paramStore !== null && method_exists($this->paramStore, 'get'))
-        {
-            return $this->paramStore->get($paramName);
+        if($this->cachedParams[$paramName] === null) {
+            $this->paramsCallCount['in']++;
+            $this->cachedParams[$paramName]['val'] = $this->paramStore->get($paramName);
+            if(!is_string($this->cachedParams[$paramName]['val']))
+                $this->cachedParams[$paramName]['val'] = '';
         }
+        $this->paramsCallCount['out']++;
+        $this->cachedParams[$paramName]['out'] = $this->cachedParams[$paramName]['out']?$this->cachedParams[$paramName]['out']+1:1;
 
         return '';
     }
@@ -168,13 +184,46 @@ class DnDice
     }
 
     /**
-     * Парсинг выражения с учетом приоритетов (улучшенный)
+     * Парсинг выражения с учетом приоритетов
      */
     private function parseExpression($formula)
     {
         $formula = trim($formula);
 
-        // Логические операторы (самый низкий приоритет) - улучшенная обработка
+        // Сначала проверяем специальные операторы для кубиков (s>X, c>X)
+        if (preg_match('/^(.+?)(s)([><])(\d+)$/', $formula, $match))
+        {
+            $diceExpression = trim($match[1]);
+            $mode = $match[2]; // s = sum, c = count
+            $operator = $match[3];
+            $target = intval($match[4]);
+
+            return array(
+                'type'           => 'dice_comparison',
+                'dice_expr'      => $this->parseExpression($diceExpression),
+                'mode'           => $mode,
+                'operator'       => $operator,
+                'target'         => $target
+            );
+        }
+
+        if (preg_match('/^(.+?)(c)([><])(\d+)$/', $formula, $match))
+        {
+            $diceExpression = trim($match[1]);
+            $mode = $match[2]; // s = sum, c = count
+            $operator = $match[3];
+            $target = intval($match[4]);
+
+            return array(
+                'type'           => 'dice_count',
+                'dice_expr'      => $this->parseExpression($diceExpression),
+                'mode'           => $mode,
+                'operator'       => $operator,
+                'target'         => $target
+            );
+        }
+
+        // Логические операторы (самый низкий приоритет)
         if (preg_match('/^(.+?)\s*([><])\s*(.+)$/', $formula, $match))
         {
             $left = trim($match[1]);
@@ -189,18 +238,7 @@ class DnDice
             );
         }
 
-        // Сумма или количество операторы - перенесено вниз для правильного приоритета
-        if (preg_match('/^([sc])([><])(\d+)$/', $formula, $match))
-        {
-            return array(
-                'type'     => 'dice_comparison',
-                'mode'     => $match[1], // s = sum, c = count
-                'operator' => $match[2],
-                'target'   => intval($match[3])
-            );
-        }
-
-        // Сложение и вычитание (учитываем возможные параметры и модификаторы)
+        // Сложение и вычитание
         if (preg_match('/^(.+?)\s*([+\-])\s*(.+)$/', $formula, $match))
         {
             // Проверяем, что это не часть модификатора кубика
@@ -233,7 +271,7 @@ class DnDice
             return $this->parseExpression($match[1]);
         }
 
-        // Кубики с параметрами (улучшенная обработка)
+        // Кубики с параметрами
         if (preg_match('/^(\d*)d(\d+)(.*)$/', $formula, $match))
         {
             $count = empty($match[1]) ? 1 : intval($match[1]);
@@ -397,19 +435,37 @@ class DnDice
                 );
 
             case 'dice_comparison':
-                // Для s> и c> нужно получить кубики из контекста
-                return array(
-                    'value'     => 'NotImplemented',
-                    'detailed'  => 'dice_comparison',
-                    'modifiers' => array()
-                );
+                // Обрабатываем сравнение кубиков (s>X, c>X)
+                $diceResult = $this->evaluateAST($ast['dice_expr']);
+
+                if ($ast['mode'] === 's') {
+                    // Сумма сравнение
+                    $success = $this->applyComparison($diceResult['value'], $ast['operator'], $ast['target']);
+                    $comparisonStr = 's' . $ast['operator'] . $ast['target'];
+
+                    return array(
+                        'value'     => $success ? 'Success' : 'Fail',
+                        'detailed'  => $diceResult['detailed'] . ' ' . $comparisonStr . ' = ' . ($success ? 'Success' : 'Fail'),
+                        'modifiers' => $diceResult['modifiers']
+                    );
+                } else {
+                    // Подсчет кубиков (нужно реализовать подсчет из исходных бросков)
+                    $count = 0; // Временно
+                    $comparisonStr = 'c' . $ast['operator'] . $ast['target'];
+
+                    return array(
+                        'value'     => $count,
+                        'detailed'  => $diceResult['detailed'] . ' ' . $comparisonStr . ' = ' . $count,
+                        'modifiers' => $diceResult['modifiers']
+                    );
+                }
         }
 
         return array('value' => 0, 'detailed' => '', 'modifiers' => array());
     }
 
     /**
-     * Бросок кубиков с модификаторами (обновленный)
+     * Бросок кубиков с модификаторами
      */
     private function rollDice($diceAST)
     {
@@ -605,8 +661,6 @@ class DnDice
     }
 }
 
-// Пример использования
-
 // Простое хранилище параметров
 class SimpleParamStore implements ParamStoreInterface
 {
@@ -635,13 +689,14 @@ $store = new SimpleParamStore(array(
     'strength' => '&str_mod',
     'str_mod' => '3',
     'attack' => '1d20+&weapon',
+    'str' => '5',
     'circular' => '&circular2',
     'circular2' => '&circular'
 ));
 
-$roller = new DiceRoller($store);
+$roller = new DnDice($store);
 
-$text = "Атакую &attack урон &weapon";
+$text = "Тест формулы (6d20kh4&str)s>35";
 
 $results = $roller->processText($text);
 
