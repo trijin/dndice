@@ -121,40 +121,22 @@ class DnDice
     {
         $processedParams = array();
 
-        return $this->replaceParametersRecursive($formula, $processedParams);
+        return $this->replaceParametersRecursive($formula);
     }
 
-    private function replaceParametersRecursive($formula, &$processedParams)
+    private function replaceParametersRecursive($formula)
     {
-        $result = preg_replace_callback('/{?&(\w+)}?/', array($this, 'replaceParameterCallback'), $formula);
+        try
+        {
+            $result = preg_replace_callback('/{?&(\w+)}?/', array($this, 'replaceParameterCallback'), $formula);
+        } catch (InvalidArgumentException $e) {
+            $result = str_replace('&','', $formula);
+        }
 
         // Проверяем, есть ли еще параметры для замены
         if ($result !== $formula && preg_match('/&\w+/', $result))
         {
-            // Есть параметры, нужна рекурсия
-            // Но сначала проверим на циклические ссылки
-            $newParams = array();
-            preg_match_all('/&(\w+)/', $result, $matches);
-
-            foreach ($matches[1] as $param)
-            {
-                if (in_array($param, $processedParams))
-                {
-                    // Циклическая ссылка, заменяем на пустую строку
-                    $result = str_replace('&'.$param, '', $result);
-                }
-                else
-                {
-                    $newParams[] = $param;
-                }
-            }
-
-            if (!empty($newParams))
-            {
-                $allProcessed = array_merge($processedParams, $newParams);
-
                 return $this->replaceParametersRecursive($result, $allProcessed);
-            }
         }
 
         return $result;
@@ -162,6 +144,10 @@ class DnDice
 
     private function replaceParameterCallback($matches)
     {
+        if($this->paramsCallCount['out']>$this->paramsCallCount['in']*100) {
+            // Рекурсивная проблема. // начинаем заменять на само название, что сломает формулу, и вынудит ее исправить.
+            throw new InvalidArgumentException('Слишком много вложеностей.');
+        }
         $paramName = $matches[1];
         if($this->cachedParams[$paramName] === null) {
             $this->paramsCallCount['in']++;
@@ -172,7 +158,7 @@ class DnDice
         $this->paramsCallCount['out']++;
         $this->cachedParams[$paramName]['out'] = $this->cachedParams[$paramName]['out']?$this->cachedParams[$paramName]['out']+1:1;
 
-        return '';
+        return $this->cachedParams[$paramName]['val'];
     }
 
     /**
