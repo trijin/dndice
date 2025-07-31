@@ -7,13 +7,11 @@
 
 class DnDice
 {
-    private $formulas = array();
-    private $paramStore = null;
-
+    private $paramStore;
     private $cachedParams = array();
     private $paramsCallCount = array('out'=>0,'in'=>0);
 
-    const ORIGIN_regex = '/(?:^|[^a-zA-Z0-9])([sf]*\s*(?:\([^)]*\)|[\d&]\w*d\d+[\w\d&]*(?:\s*[+\-*\/]\s*(?:\d+|[\d&]\w*d\d+[\w\d&]*|\([^)]+\)))*)\s*(?:[sc]?[><]\s*\d+)?)(?:[^a-zA-Z0-9]|$)/i';
+    const Claude_regex = '/(?:^|[^a-zA-Z0-9])([sf]*\s*(?:\([^)]*\)|[\d&]\w*d\d+[\w\d&]*(?:\s*[+\-*\/]\s*(?:\d+|[\d&]\w*d\d+[\w\d&]*|\([^)]+\)))*)\s*(?:[sc]?[><]\s*\d+)?)(?:[^a-zA-Z0-9]|$)/i';
     const GPT_regex = '/
     s?\(.*?\)s[><=]?\d+                                  # s(...)s>35
     |s?\d*d\d+(?:[a-z]+\d*)*(?:&\w+)?(?:c[><=]?\d+)?     # s6d20kh4&str или s6d20x4c>10
@@ -39,7 +37,6 @@ class DnDice
      */
     public function processText($text)
     {
-        $this->formulas = array();
 
         // Улучшенное регулярное выражение для поиска формул
         $pattern = self::MY_regex;
@@ -97,7 +94,6 @@ class DnDice
         try
         {
             $ast = $this->parseFormula($mainFormula);
-
             $this->validateAST($ast); // Валидация формулы
             $result = $this->evaluateAST($ast);
 
@@ -688,7 +684,11 @@ class DnDice
 // Интерфейс для хранилища параметров
 interface ParamStoreInterface
 {
-    public function get($param);
+    /**
+     * @param string $name
+     * @return string
+     */
+    public function get($name);
 }
 
 // Простое хранилище параметров
@@ -766,5 +766,3 @@ foreach ($results5 as $result) {
     echo "Результат: " . $result['expanded'] . "\n";
 }
 /**/
-
-?>
