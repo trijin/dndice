@@ -283,6 +283,8 @@ class DnDice
                 $remainingMods = $cMatch[1];
                 $operator = $cMatch[2];
                 $target = intval($cMatch[3]);
+                if($target>$sides)
+                    throw new Exception('Bad X argument in c>X part');
 
                 // Создаем узел кубика без c>X
                 $diceNode = $this->parseDiceNode($count, $sides, $remainingMods);
@@ -353,14 +355,14 @@ class DnDice
             'type'       => 'dice',
             'count'      => $count,
             'sides'      => $sides,
-            'modifiers'  => $this->parseModifiers($modifiers)
+            'modifiers'  => $this->parseModifiers($modifiers,$sides,$count)
         );
     }
 
     /**
      * Парсинг модификаторов кубика
      */
-    private function parseModifiers($modString)
+    private function parseModifiers($modString,$sides,$count)
     {
         $modifiers = array();
         $modString = trim($modString);
@@ -378,6 +380,8 @@ class DnDice
                 $modifiers[] = array('type' => $type, 'value' => $value);
                 $modString = $match[3];
                 $matched = true;
+                if($value>$count-1)
+                    throw new Exception('Bad X argument in '.$type.'X part');
             }
             // Keep min/max
             elseif (preg_match('/^(km)(\d*)(.*)$/', $modString, $match))
@@ -386,6 +390,8 @@ class DnDice
                 $modifiers[] = array('type' => 'km', 'value' => $value);
                 $modString = $match[3];
                 $matched = true;
+                if($value>floor(($count-1)/2))
+                    throw new Exception('Bad X argument in kmX part');
             }
             // Drop highest/lowest
             elseif (preg_match('/^(d[hl])(\d*)(.*)$/', $modString, $match))
@@ -395,6 +401,8 @@ class DnDice
                 $modifiers[] = array('type' => $type, 'value' => $value);
                 $modString = $match[3];
                 $matched = true;
+                if($value>$count-1)
+                    throw new Exception('Bad X argument in '.$type.'X part');
             }
             // Drop min/max
             elseif (preg_match('/^(dm)(\d*)(.*)$/', $modString, $match))
@@ -403,20 +411,28 @@ class DnDice
                 $modifiers[] = array('type' => 'dm', 'value' => $value);
                 $modString = $match[3];
                 $matched = true;
+                if($value>floor(($count-1)/2))
+                    throw new Exception('Bad X argument in dmX part');
             }
             // Reroll
             elseif (preg_match('/^r(\d+)(.*)$/', $modString, $match))
             {
-                $modifiers[] = array('type' => 'r', 'value' => intval($match[1]));
+                $value = intval($match[1]);
+                $modifiers[] = array('type' => 'r', 'value' => $value);
                 $modString = $match[2];
                 $matched = true;
+                if($value>$sides)
+                    throw new Exception('Bad X argument in rX part');
             }
             // Reroll once
             elseif (preg_match('/^ro(\d+)(.*)$/', $modString, $match))
             {
-                $modifiers[] = array('type' => 'ro', 'value' => intval($match[1]));
+                $value = intval($match[1]);
+                $modifiers[] = array('type' => 'ro', 'value' => $value);
                 $modString = $match[2];
                 $matched = true;
+                if($value>$sides)
+                    throw new Exception('Bad X argument in roX part');
             }
             // Exploding dice
             elseif (preg_match('/^([!x])(\d*)(.*)$/', $modString, $match))
@@ -731,7 +747,7 @@ $text1 = "6d20h
 6d20l
 6d20kh
 6d20kl
-6d20kh2
+6d20kh8
 6d20kl2
 6d20dh
 6d20dl
@@ -741,6 +757,8 @@ $text1 = "6d20h
 6d20dm
 6d20km2
 6d20dm2
+6d20km8
+6d20dm8
 
 ";
 
