@@ -19,7 +19,7 @@ class DnDice
     |&\w+                                                # &attack
     |s?\d*d\d+(?:[a-z]+\d*)*(?:&\w+)?(?:c[><=]?\d+)?\s*[><=]\s*\d*d\d+(?:[a-z]+\d*)*(?:&\w+)?(?:c[><=]?\d+)? # сравнение: формула > формула
 /x';
-    const MY_regex = '/(?:^|[^a-zA-Z0-9])((?:[sf]{1,2})?(?:{?&[&a-zA-Z0-9]+}?|d\d+|\d+d\d+|\()(?:{?&[&a-zA-Z0-9]+}?|d\d+|\d+d\d+|[()]|\s[<>]\s|(?:{?&[&a-zA-Z0-9]+}?|(?:h|[kd][hlm]\d+?)|!|x\d+?|[sc][<>]=?\d+|ro?\d+|\s?[+\-*\/]\s?\d+?))*)+(?:[^a-zA-Z0-9]|$)/';
+    const MY_regex = '/(?:\b|\s|^)((?:[sf]{1,2})?(?:{?&[&a-zA-Z0-9]+}?|d\d+|\d+d\d+|\()(?:{?&[&a-zA-Z0-9]+}?|d\d+|\d+d\d+|[()]|\s[<>]\s|(?:{?&[&a-zA-Z0-9]+}?|(?:h|[kd][hlm]\d*?)|!|x\d+?|[sc][<>]=?\d+|ro?\d+|\s?[+\-*\/]\s?\d+?))*)\b/i';
 
     /**
      * Конструктор
@@ -41,7 +41,6 @@ class DnDice
         // Улучшенное регулярное выражение для поиска формул
         $pattern = self::MY_regex;
         preg_match_all($pattern, $text, $matches);
-
         $results = array();
 
         foreach ($matches[1] as $formula)
@@ -76,7 +75,7 @@ class DnDice
         $showDetails = false;
 
         // Проверяем на комбинацию префиксов sf или fs
-        if (preg_match('/^([sf]{1,2})\s*(.+)/', $expandedFormula, $match))
+        if (preg_match('/^([sf]{1,2})\s*(.+)/i', $expandedFormula, $match))
         {
             $prefixes = $match[1];
             $mainFormula = $match[2];
@@ -219,7 +218,7 @@ class DnDice
         }
 
         // Логические операторы (самый низкий приоритет)
-        if (preg_match('/^(.+?[^cs](?:\s|\)))([><])\s*(.+)$/', $formula, $match))
+        if (preg_match('/^(.+?[^cs](?:\s|\)))([><]=?)\s*(.+)$/', $formula, $match))
         {
             $left = trim($match[1]);
             $operator = $match[2];
@@ -272,7 +271,7 @@ class DnDice
         }
 
         // Кубики с модификаторами и c>X
-        if (preg_match('/^(\d*)d(\d+)(.*)$/', $formula, $match))
+        if (preg_match('/^(\d*)d(\d+)(.*)$/i', $formula, $match))
         {
             $count = empty($match[1]) ? 1 : intval($match[1]);
             $sides = intval($match[2]);
@@ -462,7 +461,7 @@ class DnDice
 
                 return array(
                     'value'     => $result,
-                    'detailed'  => $left['detailed'].' '.$ast['operator'].' '.$right['detailed'].' = '.$result,
+                    'detailed'  => '('.$left['detailed'].') '.$ast['operator'].' ('.$right['detailed'].') = '.$result,
                     'modifiers' => array_merge($left['modifiers'], $right['modifiers'])
                 );
 
@@ -474,7 +473,7 @@ class DnDice
 
                 return array(
                     'value'     => $success ? 'Success' : 'Fail',
-                    'detailed'  => $left['detailed'].' '.$ast['operator'].' '.$right['detailed'].' = '.($success ? 'Success' : 'Fail'),
+                    'detailed'  => '('.$left['detailed'].') '.$ast['operator'].' ('.$right['detailed'].') = '.($success ? 'Success' : 'Fail'),
                     'modifiers' => array_merge($left['modifiers'], $right['modifiers'])
                 );
 
@@ -536,10 +535,12 @@ class DnDice
 
         $originalRolls = $rolls;
         $detailed = $count.'d'.$sides.' ['.implode(', ', $rolls).']';
+        $listTextMofifier = array();
 
         // Применяем модификаторы к броскам
         foreach ($modifiers as $modifier)
         {
+            $listTextMofifier[]=$modifier['type'].$modifier['value'];
             $rolls = $this->applyModifier($rolls, $modifier, $sides);
         }
 
@@ -548,7 +549,7 @@ class DnDice
         // Формируем детальное описание
         if ($rolls !== $originalRolls)
         {
-            $detailed .= ' -> ['.implode(', ', $rolls).']';
+            $detailed .= ' -('.implode(',',$listTextMofifier).')-> ['.implode(', ', $rolls).']';
         }
 
         $detailed .= ' = '.$sum;
@@ -675,6 +676,10 @@ class DnDice
                 return $left > $right;
             case '<':
                 return $left < $right;
+            case '>=':
+                return $left >= $right;
+            case '<=':
+                return $left <= $right;
         }
 
         return false;
@@ -721,7 +726,32 @@ $store = new SimpleParamStore(array(
 ));
 
 $roller = new DnDice($store);
+// Тестируем h kh kl dh, dl, km, dm,
+$text1 = "6d20h
+6d20l
+6d20kh
+6d20kl
+6d20kh2
+6d20kl2
+6d20dh
+6d20dl
+6d20dh2
+6d20dl2
+6d20km
+6d20dm
+6d20km2
+6d20dm2
 
+";
+
+echo $text1 . "\n";
+$results1 = $roller->processText($text1);
+foreach ($results1 as $result) {
+    echo "Оригинал: " . $result['original'] . "\n";
+    echo "Формула: " . $result['formula'] . "\n";
+    echo "Результат: " . $result['expanded'] . "\n\n";
+}
+/*
 // Тестируем математику с числами
 $text1 = "Атака: d20+5";
 echo "Тест 1: " . $text1 . "\n";
