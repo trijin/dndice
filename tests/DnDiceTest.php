@@ -1,6 +1,6 @@
 <?php
 
-include_once '../ParamStoreInterface.php';
+//include_once '../ParamStoreInterface.php';
 include_once '../DnDice.php';
 
 use PHPUnit\Framework\TestCase;
@@ -70,6 +70,14 @@ class DnDiceTest extends TestCase
             ),
             array(
                 'text'=>'Атака: &attack'
+            ),
+            array(
+                'text'=>'3d10 Обычная формула с спойлером s6d20kh4&str тут всякое бывает,↵
+ а затем s6d20x4c>10 с новой строки. d20 в той же строке, а &attack вообще без других частей формул.↵↵
+Такой формулой можно получить сразу результат проверки s(6d20x4&str)s>35, а можно сделать более сложную проверку: s6d20x4c>10 > 6d20x4c>10  @player1 > @player2↵
+4d10! + 15↵
+↵
+'
             ),
         );
         foreach ($data as $d) {
